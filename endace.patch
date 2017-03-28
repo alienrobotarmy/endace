@@ -1,0 +1,129 @@
+diff -urN dag-5.2.0/drv/linux/dag_core.c dag-5.2.0-jtm/drv/linux/dag_core.c
+--- dag-5.2.0/drv/linux/dag_core.c	2014-09-01 00:44:03.235000050 -0400
++++ dag-5.2.0-jtm/drv/linux/dag_core.c	2016-08-31 16:30:43.091356844 -0400
+@@ -623,7 +623,7 @@
+ static ssize_t
+ dag_write(struct file *fp, const char *buf, size_t count, loff_t *ppos)
+ {
+-	struct inode *inode = fp->f_dentry->d_inode;
++	struct inode *inode = file_inode(fp);
+ 	dag_devtype_t	type = DAGDEVTYPE(inode);
+ 	struct dag_card *dc = fp->private_data;
+ 	uint32_t klen;
+@@ -689,7 +689,7 @@
+ static ssize_t
+ dag_read(struct file *fp, char *buf, size_t count, loff_t *ppos)
+ {
+-	struct inode *inode = fp->f_dentry->d_inode;
++	struct inode *inode = file_inode(fp);
+ 	dag_devtype_t	type = DAGDEVTYPE(inode);
+ 	struct dag_card *dc = fp->private_data;
+ 	uint32_t klen;
+@@ -720,7 +720,7 @@
+ dagcore_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+ {
+ 	struct dag_card *dc = (struct dag_card *)vma->vm_private_data;
+-	dag_devtype_t type = DAGDEVTYPE(vma->vm_file->f_dentry->d_inode);
++	dag_devtype_t type = DAGDEVTYPE(file_inode(vma->vm_file));
+ 	uint64_t psize = PAGE_SIZE;
+ 	struct page *page;
+ 	uint64_t paddr;
+@@ -771,7 +771,7 @@
+ 
+ static int dag_mmap(struct file *fp, struct vm_area_struct * vma)
+ {
+-	struct inode *inode = fp->f_dentry->d_inode;
++	struct inode *inode = file_inode(fp);
+ 	struct dag_card *dc = fp->private_data;
+ 	dag_devtype_t type = DAGDEVTYPE(inode);
+ 	size_t vsize = vma->vm_end - vma->vm_start;
+diff -urN dag-5.2.0/drv/linux/dagduck.c dag-5.2.0-jtm/drv/linux/dagduck.c
+--- dag-5.2.0/drv/linux/dagduck.c	2014-09-01 00:44:03.235000050 -0400
++++ dag-5.2.0-jtm/drv/linux/dagduck.c	2016-08-31 17:04:56.141109591 -0400
+@@ -855,8 +855,8 @@
+         .pps            = 0,
+         .adjfreq        = dag_ptp_adjfreq,
+         .adjtime        = dag_ptp_adjtime,
+-        .gettime        = dag_ptp_gettime,
+-        .settime        = dag_ptp_settime,
++        .gettime64        = dag_ptp_gettime,
++        .settime64        = dag_ptp_settime,
+         .enable         = dag_ptp_enable
+ };
+ 
+diff -urN dag-5.2.0/drv/linux/dagmem.c dag-5.2.0-jtm/drv/linux/dagmem.c
+--- dag-5.2.0/drv/linux/dagmem.c	2014-09-01 00:44:03.235000050 -0400
++++ dag-5.2.0-jtm/drv/linux/dagmem.c	2016-08-31 17:05:20.884988179 -0400
+@@ -37,6 +37,7 @@
+ #include <linux/pagemap.h>
+ #include <linux/delay.h>
+ #include <asm/io.h>
++#include <linux/vmalloc.h>
+ 
+ #include <linux/string.h>
+ #include "dagpci.h"
+diff -urN dag-5.2.0/drv/linux/dagnet_main.c dag-5.2.0-jtm/drv/linux/dagnet_main.c
+--- dag-5.2.0/drv/linux/dagnet_main.c	2014-09-01 00:44:03.235000050 -0400
++++ dag-5.2.0-jtm/drv/linux/dagnet_main.c	2016-08-31 17:05:59.900796690 -0400
+@@ -84,7 +84,7 @@
+ 
+         BUG_ON(!ptp);
+         skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
+-        ptp->info.gettime(&ptp->info, &ts);
++        ptp->info.gettime64(&ptp->info, &ts);
+         shhwtstamps.hwtstamp = timespec_to_ktime(ts);
+         skb_tstamp_tx(skb, &shhwtstamps);
+         DAG_DEBUG("PTP TX timestamp %llx (%d sec %ld ns)\n",
+@@ -487,13 +487,14 @@
+ 
+ static void dag_set_ethtool_ops(struct net_device *netdev)
+ {
+-        SET_ETHTOOL_OPS(netdev, &dag_ethtool_ops);
++//        SET_ETHTOOL_OPS(netdev, &dag_ethtool_ops);
+         set_ethtool_ops_ext(netdev, &dag_ethtool_ops_ext);
+ }
+ #else
+ static void dag_set_ethtool_ops(struct net_device *netdev)
+ {
+-        SET_ETHTOOL_OPS(netdev, &dag_ethtool_ops);
++        //SET_ETHTOOL_OPS(netdev, &dag_ethtool_ops);
++	;;
+ }
+ #endif /* HAVE_RHEL6_ETHTOOL_OPS_EXT_STRUCT */
+ 
+diff -urN dag-5.2.0/drv/linux/dag_pcidev.c dag-5.2.0-jtm/drv/linux/dag_pcidev.c
+--- dag-5.2.0/drv/linux/dag_pcidev.c	2014-09-01 00:44:03.235000050 -0400
++++ dag-5.2.0-jtm/drv/linux/dag_pcidev.c	2016-08-31 16:35:31.333921534 -0400
+@@ -41,6 +41,7 @@
+ #include <linux/pagemap.h>
+ #include <linux/delay.h>
+ #include <linux/stat.h>
++#include <linux/vmalloc.h>
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
+ #include <linux/pci-aspm.h>
+@@ -99,6 +100,13 @@
+ #define DAG_REG_BASE		0x900
+ #define DAG_REG_ADDR_START	0xffa5
+ 
++int check_mem_region(unsigned long start, unsigned long len)
++{
++  /* Compatibility with older kernels. Deprecated. 
++     -JTM */
++  return 0;
++}
++
+ 
+ struct dagpci_memdesc
+ {
+diff -urN dag-5.2.0/drv/linux/dag_vdev.c dag-5.2.0-jtm/drv/linux/dag_vdev.c
+--- dag-5.2.0/drv/linux/dag_vdev.c	2014-09-01 00:44:03.235000050 -0400
++++ dag-5.2.0-jtm/drv/linux/dag_vdev.c	2016-08-31 16:35:50.597825479 -0400
+@@ -34,6 +34,7 @@
+ #include <linux/ioport.h>
+ #include <linux/pci.h>
+ #include <linux/pagemap.h>
++#include <linux/vmalloc.h>
+ 
+ /* #define DEBUG 1 */
+ #include "dagcompat.h"
